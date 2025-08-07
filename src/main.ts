@@ -1,4 +1,4 @@
-import { getCurrentWebviewWindow, WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { debugLogger } from "./debug";
 import { releaseDebugger } from "./release-debug";
 import { webviewDebugger } from "./webview-debug";
@@ -108,6 +108,9 @@ class WebviewManager {
   async createWebviewWindow(): Promise<boolean> {
     try {
       debugLogger.log("Создаем WebviewWindow для Яндекс Музыки");
+      
+      // Динамический импорт WebviewWindow для оптимизации code splitting
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       
       const yandexMusicWindow = new WebviewWindow('yandex-music', {
         url: 'https://music.yandex.ru',

@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig({
   // Базовый путь для production
   base: './',
   
@@ -30,11 +30,36 @@ export default defineConfig(async () => ({
     },
   },
   build: {
-    // Убеждаемся, что все ресурсы корректно обрабатываются
+    // Оптимизация для code splitting
     rollupOptions: {
       output: {
-        manualChunks: undefined,
+        // Ручное управление чанками для оптимизации
+        manualChunks: {
+          // Основной чанк для Tauri API
+          'tauri-core': ['@tauri-apps/api/webviewWindow'],
+          // Чанк для утилит отладки
+          'debug-utils': ['./src/debug', './src/release-debug', './src/webview-debug'],
+          // Чанк для вендоров (если появятся)
+          'vendor': []
+        },
+        // Оптимизация имен файлов
+        chunkFileNames: (chunkInfo) => {
+          const facadeModuleId = chunkInfo.facadeModuleId ? chunkInfo.facadeModuleId.split('/').pop() : 'chunk';
+          return `js/[name]-[hash].js`;
+        },
+        entryFileNames: 'js/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]'
       },
     },
+    // Оптимизация размера бандла
+    chunkSizeWarningLimit: 1000,
+    // Включение source maps для отладки
+    sourcemap: true,
+    // Минификация с помощью esbuild (стандарт для Vite)
+    minify: 'esbuild'
   },
-}));
+  // Оптимизация для разработки
+  optimizeDeps: {
+    include: ['@tauri-apps/api/webviewWindow']
+  }
+});

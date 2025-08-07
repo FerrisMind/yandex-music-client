@@ -49,11 +49,11 @@ export class WebviewDebugger {
     }
   }
 
-  // Проверка доступности WebviewWindow API
+  // Проверка доступности WebviewWindow API с оптимизированным динамическим импортом
   async checkWebviewWindowAPI(): Promise<boolean> {
     try {
-      // Проверяем импорт WebviewWindow
-      await import('@tauri-apps/api/webviewWindow');
+      // Используем webpackPrefetch для оптимизации загрузки
+      await import(/* webpackPrefetch: true */ '@tauri-apps/api/webviewWindow');
       this.log('✅ WebviewWindow API доступен');
       return true;
     } catch (error) {
