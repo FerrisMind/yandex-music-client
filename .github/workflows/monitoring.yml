@@ -1,0 +1,263 @@
+name: Repository Monitoring
+
+on:
+  schedule:
+    - cron: '0 9 * * 1-5'  # Каждый рабочий день в 9:00
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    name: Repository Health Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Check repository health
+      id: health-check
+      run: |
+        echo "# Repository Health Report" > health-report.md
+        echo "" >> health-report.md
+        echo "## Basic Information" >> health-report.md
+        echo "" >> health-report.md
+        echo "- **Repository:** ${{ github.repository }}" >> health-report.md
+        echo "- **Last Check:** $(date)" >> health-report.md
+        echo "- **Branch:** ${{ github.ref }}" >> health-report.md
+        echo "" >> health-report.md
+        
+        # Проверяем размер репозитория
+        REPO_SIZE=$(du -sh . | cut -f1)
+        echo "- **Repository Size:** $REPO_SIZE" >> health-report.md
+        
+        # Проверяем количество файлов
+        FILE_COUNT=$(find . -type f | wc -l)
+        echo "- **Total Files:** $FILE_COUNT" >> health-report.md
+        
+        # Проверяем количество коммитов
+        COMMIT_COUNT=$(git rev-list --count HEAD)
+        echo "- **Total Commits:** $COMMIT_COUNT" >> health-report.md
+        
+        echo "" >> health-report.md
+        echo "## Dependencies Status" >> health-report.md
+        echo "" >> health-report.md
+        
+        # Проверяем npm зависимости
+        echo "### Node.js Dependencies" >> health-report.md
+        npm outdated --json > npm-outdated.json || echo "{}" > npm-outdated.json
+        NPM_OUTDATED_COUNT=$(jq 'keys | length' npm-outdated.json)
+        echo "- **Outdated npm packages:** $NPM_OUTDATED_COUNT" >> health-report.md
+        
+        # Проверяем Rust зависимости
+        echo "" >> health-report.md
+        echo "### Rust Dependencies" >> health-report.md
+        cd src-tauri
+        cargo outdated --root > cargo-outdated.txt 2>/dev/null || echo "No outdated dependencies" > cargo-outdated.txt
+        cd ..
+        
+        echo "" >> health-report.md
+        echo "## Security Status" >> health-report.md
+        echo "" >> health-report.md
+        
+        # Проверяем npm аудит
+        npm audit --audit-level=moderate > npm-audit.txt 2>&1 || echo "No vulnerabilities found" > npm-audit.txt
+        if grep -q "found" npm-audit.txt; then
+          echo "- **npm vulnerabilities:** Found" >> health-report.md
+        else
+          echo "- **npm vulnerabilities:** None" >> health-report.md
+        fi
+        
+        # Проверяем Rust аудит
+        cd src-tauri
+        cargo audit > cargo-audit.txt 2>&1 || echo "No vulnerabilities found" > cargo-audit.txt
+        cd ..
+        if grep -q "found" cargo-audit.txt; then
+          echo "- **Rust vulnerabilities:** Found" >> health-report.md
+        else
+          echo "- **Rust vulnerabilities:** None" >> health-report.md
+        fi
+        
+        echo "" >> health-report.md
+        echo "## Build Status" >> health-report.md
+        echo "" >> health-report.md
+        
+        # Проверяем сборку
+        if npm run build > build-log.txt 2>&1; then
+          echo "- **Frontend build:** ✅ Success" >> health-report.md
+        else
+          echo "- **Frontend build:** ❌ Failed" >> health-report.md
+        fi
+        
+        cd src-tauri
+        if cargo check > cargo-check.txt 2>&1; then
+          echo "- **Rust check:** ✅ Success" >> health-report.md
+        else
+          echo "- **Rust check:** ❌ Failed" >> health-report.md
+        fi
+        cd ..
+        
+        echo "" >> health-report.md
+        echo "## Recent Activity" >> health-report.md
+        echo "" >> health-report.md
+        
+        # Последние коммиты
+        echo "### Recent Commits" >> health-report.md
+        git log --oneline -5 >> health-report.md
+        
+        echo "" >> health-report.md
+        echo "## Recommendations" >> health-report.md
+        echo "" >> health-report.md
+        
+        # Рекомендации
+        if [ $NPM_OUTDATED_COUNT -gt 5 ]; then
+          echo "- ⚠️ Consider updating npm dependencies" >> health-report.md
+        fi
+        
+        if grep -q "found" npm-audit.txt || grep -q "found" cargo-audit.txt; then
+          echo "- 🔒 Security vulnerabilities detected" >> health-report.md
+        fi
+        
+        if [ $FILE_COUNT -gt 1000 ]; then
+          echo "- 📁 Large repository, consider cleanup" >> health-report.md
+        fi
+
+    - name: Upload health report
+      uses: actions/upload-artifact@v4
+      with:
+        name: health-report-$(date +%Y%m%d)
+        path: health-report.md
+        retention-days: 30
+
+  workflow-status:
+    name: Workflow Status Check
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+
+    steps:
+    - name: Check workflow status
+      run: |
+        echo "# Workflow Status Report" > workflow-status.md
+        echo "" >> workflow-status.md
+        echo "## Recent Workflow Runs" >> workflow-status.md
+        echo "" >> workflow-status.md
+        
+        # Получаем статус последних workflow runs
+        # Здесь можно добавить логику для получения статуса через GitHub API
+        
+        echo "- **Build workflow:** Check manually" >> workflow-status.md
+        echo "- **Test workflow:** Check manually" >> workflow-status.md
+        echo "- **Security workflow:** Check manually" >> workflow-status.md
+        echo "- **Release workflow:** Check manually" >> workflow-status.md
+
+    - name: Upload workflow status
+      uses: actions/upload-artifact@v4
+      with:
+        name: workflow-status-$(date +%Y%m%d)
+        path: workflow-status.md
+        retention-days: 30
+
+  performance-metrics:
+    name: Performance Metrics
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Measure build performance
+      run: |
+        echo "# Performance Metrics" > performance-report.md
+        echo "" >> performance-report.md
+        echo "## Build Performance" >> performance-report.md
+        echo "" >> performance-report.md
+        
+        # Измеряем время сборки frontend
+        echo "### Frontend Build Time" >> performance-report.md
+        START_TIME=$(date +%s)
+        npm run build
+        END_TIME=$(date +%s)
+        BUILD_TIME=$((END_TIME - START_TIME))
+        echo "- **Build time:** ${BUILD_TIME} seconds" >> performance-report.md
+        
+        # Измеряем размер сборки
+        if [ -d "dist" ]; then
+          BUILD_SIZE=$(du -sh dist | cut -f1)
+          echo "- **Build size:** $BUILD_SIZE" >> performance-report.md
+        fi
+        
+        echo "" >> performance-report.md
+        echo "### Rust Build Performance" >> performance-report.md
+        cd src-tauri
+        
+        # Измеряем время проверки Rust
+        START_TIME=$(date +%s)
+        cargo check
+        END_TIME=$(date +%s)
+        CHECK_TIME=$((END_TIME - START_TIME))
+        echo "- **Check time:** ${CHECK_TIME} seconds" >> performance-report.md
+        
+        # Измеряем время тестов
+        START_TIME=$(date +%s)
+        cargo test --no-run
+        END_TIME=$(date +%s)
+        TEST_TIME=$((END_TIME - START_TIME))
+        echo "- **Test compilation time:** ${TEST_TIME} seconds" >> performance-report.md
+        
+        cd ..
+        
+        echo "" >> performance-report.md
+        echo "## Recommendations" >> performance-report.md
+        echo "" >> performance-report.md
+        
+        if [ $BUILD_TIME -gt 60 ]; then
+          echo "- ⏱️ Frontend build is slow, consider optimization" >> performance-report.md
+        fi
+        
+        if [ $CHECK_TIME -gt 30 ]; then
+          echo "- ⏱️ Rust check is slow, consider optimization" >> performance-report.md
+        fi
+
+    - name: Upload performance report
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-report-$(date +%Y%m%d)
+        path: performance-report.md
+        retention-days: 30
