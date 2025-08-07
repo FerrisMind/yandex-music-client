@@ -1,0 +1,63 @@
+name: Dependabot Auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  dependabot:
+    name: Dependabot Auto-merge
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Install Rust dependencies
+      run: |
+        cd src-tauri
+        cargo install tauri-cli --version "^2"
+
+    - name: Build frontend
+      run: npm run build
+
+    - name: Build Tauri app
+      run: |
+        cd src-tauri
+        cargo tauri build --release
+
+    - name: Run tests
+      run: |
+        cd src-tauri
+        cargo test
+
+    - name: Auto-approve Dependabot PRs
+      if: success()
+      uses: hmarr/auto-approve-action@v3
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Enable auto-merge for Dependabot PRs
+      if: success()
+      run: |
+        gh pr merge --auto --merge "$PR_URL"
+      env:
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

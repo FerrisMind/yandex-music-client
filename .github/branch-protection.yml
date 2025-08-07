@@ -1,0 +1,74 @@
+# Конфигурация защиты веток для Yandex Music Client
+# Этот файл описывает рекомендуемые настройки защиты веток
+
+# Основная ветка (main)
+main:
+  required_status_checks:
+    strict: true
+    contexts:
+      - "Build / Build for ubuntu-latest"
+      - "Build / Build for windows-latest" 
+      - "Build / Build for macos-latest"
+      - "Test / Test Frontend"
+      - "Test / Test Rust"
+      - "Test / Lint"
+      - "Security / Security Audit"
+      - "Security / CodeQL Analysis"
+  
+  enforce_admins: true
+  required_pull_request_reviews:
+    required_approving_review_count: 1
+    dismiss_stale_reviews: true
+    require_code_owner_reviews: false
+  
+  restrictions:
+    users: []
+    teams: []
+  
+  required_linear_history: false
+  allow_force_pushes: false
+  allow_deletions: false
+
+# Ветка разработки (develop)
+develop:
+  required_status_checks:
+    strict: true
+    contexts:
+      - "Build / Build for ubuntu-latest"
+      - "Test / Test Frontend"
+      - "Test / Test Rust"
+      - "Test / Lint"
+  
+  enforce_admins: false
+  required_pull_request_reviews:
+    required_approving_review_count: 1
+    dismiss_stale_reviews: true
+    require_code_owner_reviews: false
+  
+  restrictions:
+    users: []
+    teams: []
+  
+  required_linear_history: false
+  allow_force_pushes: false
+  allow_deletions: false
+
+# Настройки для всех веток
+default:
+  required_status_checks:
+    strict: false
+    contexts: []
+  
+  enforce_admins: false
+  required_pull_request_reviews:
+    required_approving_review_count: 0
+    dismiss_stale_reviews: false
+    require_code_owner_reviews: false
+  
+  restrictions:
+    users: []
+    teams: []
+  
+  required_linear_history: false
+  allow_force_pushes: false
+  allow_deletions: false

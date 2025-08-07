@@ -1,0 +1,153 @@
+name: Pre-release
+
+on:
+  push:
+    branches: [ develop ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0-beta.1)'
+        required: true
+        default: '1.0.0-beta.1'
+
+jobs:
+  prerelease:
+    name: Create Pre-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          # Auto-generate beta version
+          cd src-tauri
+          CURRENT_VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[0].version')
+          BETA_VERSION="${CURRENT_VERSION}-beta.$(date +%Y%m%d%H%M%S)"
+          echo "version=$BETA_VERSION" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Update version
+      run: |
+        cd src-tauri
+        cargo set-version ${{ steps.version.outputs.version }}
+        
+        cd ..
+        npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+
+    - name: Build for all platforms
+      strategy:
+        fail-fast: false
+        matrix:
+          platform: [ubuntu-latest, windows-latest, macos-latest]
+
+      runs-on: ${{ matrix.platform }}
+
+      steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Rust dependencies
+        run: |
+          cd src-tauri
+          cargo install tauri-cli --version "^2"
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Tauri app
+        run: |
+          cd src-tauri
+          cargo tauri build --release
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-prerelease
+          path: |
+            src-tauri/target/release/bundle/
+            src-tauri/target/release/*.exe
+            src-tauri/target/release/*.app
+            src-tauri/target/release/*.dmg
+          retention-days: 7
+
+    - name: Create tag and push
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+        git tag "v${{ steps.version.outputs.version }}"
+        git push origin develop
+        git push origin "v${{ steps.version.outputs.version }}"
+
+    - name: Create Pre-release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "v${{ steps.version.outputs.version }}"
+        name: "Pre-release v${{ steps.version.outputs.version }}"
+        body: |
+          ## Pre-release v${{ steps.version.outputs.version }}
+          
+          Это предварительная версия для тестирования.
+          
+          ### Скачать
+          - Windows: Скачайте файл `.exe`
+          - macOS: Скачайте файл `.dmg`
+          - Linux: Скачайте файл `.AppImage` или `.deb`
+          
+          ### Изменения
+          - Предварительная версия для тестирования
+          - Исправления и улучшения
+          
+          ### Примечания
+          - Эта версия может содержать ошибки
+          - Не рекомендуется для продакшена
+        draft: false
+        prerelease: true
+        files: |
+          artifacts/ubuntu-latest-prerelease/**/*
+          artifacts/windows-latest-prerelease/**/*
+          artifacts/macos-latest-prerelease/**/*

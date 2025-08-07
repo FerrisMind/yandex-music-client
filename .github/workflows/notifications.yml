@@ -1,0 +1,87 @@
+name: Notifications
+
+on:
+  workflow_run:
+    workflows: ["Build", "Release", "Test", "Security"]
+    types: [completed]
+
+jobs:
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion != 'skipped' }}
+
+    steps:
+    - name: Check workflow status
+      id: check-status
+      run: |
+        if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+          echo "status=success" >> $GITHUB_OUTPUT
+        else
+          echo "status=failure" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "workflow=${{ github.event.workflow_run.name }}" >> $GITHUB_OUTPUT
+        echo "branch=${{ github.event.workflow_run.head_branch }}" >> $GITHUB_OUTPUT
+
+    - name: Notify on success
+      if: steps.check-status.outputs.status == 'success'
+      run: |
+        echo "✅ Workflow '${{ steps.check-status.outputs.workflow }}' completed successfully on branch '${{ steps.check-status.outputs.branch }}'"
+        
+        # Здесь можно добавить уведомления в Slack, Discord, Telegram и т.д.
+        # Пример для Slack:
+        # curl -X POST -H 'Content-type: application/json' \
+        #   --data "{\"text\":\"✅ Workflow '${{ steps.check-status.outputs.workflow }}' completed successfully on branch '${{ steps.check-status.outputs.branch }}'\"}" \
+        #   ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify on failure
+      if: steps.check-status.outputs.status == 'failure'
+      run: |
+        echo "❌ Workflow '${{ steps.check-status.outputs.workflow }}' failed on branch '${{ steps.check-status.outputs.branch }}'"
+        
+        # Здесь можно добавить уведомления об ошибках
+        # Пример для Slack:
+        # curl -X POST -H 'Content-type: application/json' \
+        #   --data "{\"text\":\"❌ Workflow '${{ steps.check-status.outputs.workflow }}' failed on branch '${{ steps.check-status.outputs.branch }}'. Check: ${{ github.event.workflow_run.html_url }}\"}" \
+        #   ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Уведомления для релизов
+  release-notify:
+    name: Release Notifications
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.name == 'Release' && github.event.workflow_run.conclusion == 'success'
+
+    steps:
+    - name: Get release info
+      id: release-info
+      run: |
+        echo "tag=${{ github.event.workflow_run.head_branch }}" >> $GITHUB_OUTPUT
+        echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Notify release
+      run: |
+        echo "🎉 New release: ${{ steps.release-info.outputs.version }}"
+        
+        # Здесь можно добавить уведомления о релизе
+        # Пример для Slack:
+        # curl -X POST -H 'Content-type: application/json' \
+        #   --data "{\"text\":\"🎉 New release: ${{ steps.release-info.outputs.version }} is now available!\"}" \
+        #   ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Уведомления для security issues
+  security-notify:
+    name: Security Notifications
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.name == 'Security' && github.event.workflow_run.conclusion == 'failure'
+
+    steps:
+    - name: Notify security issue
+      run: |
+        echo "🚨 Security issue detected in workflow '${{ github.event.workflow_run.name }}'"
+        
+        # Здесь можно добавить уведомления о проблемах безопасности
+        # Пример для Slack:
+        # curl -X POST -H 'Content-type: application/json' \
+        #   --data "{\"text\":\"🚨 Security issue detected! Check: ${{ github.event.workflow_run.html_url }}\"}" \
+        #   ${{ secrets.SLACK_WEBHOOK_URL }}

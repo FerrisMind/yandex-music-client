@@ -1,0 +1,65 @@
+name: Dependency Update
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Каждый понедельник в 2:00
+  workflow_dispatch:  # Позволяет запускать вручную
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Check for npm updates
+      id: npm-check
+      run: |
+        npm outdated --json > npm-outdated.json || echo "{}" > npm-outdated.json
+        echo "has-updates=$(jq -r 'keys | length > 0' npm-outdated.json)" >> $GITHUB_OUTPUT
+
+    - name: Update npm dependencies
+      if: steps.npm-check.outputs.has-updates == 'true'
+      run: |
+        npm update
+        npm audit fix
+
+    - name: Check for Rust updates
+      run: |
+        cd src-tauri
+        cargo outdated --root > cargo-outdated.txt || echo "No outdated dependencies" > cargo-outdated.txt
+
+    - name: Create Pull Request
+      if: steps.npm-check.outputs.has-updates == 'true'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'chore: update dependencies'
+        title: 'chore: update dependencies'
+        body: |
+          Автоматическое обновление зависимостей
+          
+          - Обновлены npm зависимости
+          - Проверены Rust зависимости
+          
+          Запустите тесты перед мержем.
+        branch: dependency-update
+        delete-branch: true

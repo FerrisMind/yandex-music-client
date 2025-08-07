@@ -1,0 +1,90 @@
+name: Generate Changelog
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  changelog:
+    name: Generate Changelog
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Get the tag name without 'v' prefix
+        TAG_NAME=${GITHUB_REF#refs/tags/}
+        VERSION=${TAG_NAME#v}
+        
+        # Generate changelog from commits since last tag
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+        
+        if [ -n "$PREVIOUS_TAG" ]; then
+          CHANGELOG=$(git log --pretty=format:"- %s (%an)" $PREVIOUS_TAG..HEAD | grep -v "chore:" | grep -v "docs:" | head -50)
+        else
+          CHANGELOG=$(git log --pretty=format:"- %s (%an)" | grep -v "chore:" | grep -v "docs:" | head -50)
+        fi
+        
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "# Changelog for v$VERSION" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "## Changes" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create CHANGELOG.md
+      run: |
+        echo "${{ steps.changelog.outputs.changelog }}" > CHANGELOG.md
+        
+        # Add to existing changelog if it exists
+        if [ -f CHANGELOG.md ]; then
+          # Create a temporary file with new content at the top
+          echo "${{ steps.changelog.outputs.changelog }}" > temp_changelog.md
+          echo "" >> temp_changelog.md
+          echo "---" >> temp_changelog.md
+          echo "" >> temp_changelog.md
+          cat CHANGELOG.md >> temp_changelog.md
+          mv temp_changelog.md CHANGELOG.md
+        fi
+
+    - name: Commit and push changelog
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add CHANGELOG.md
+        git commit -m "docs: update changelog for ${{ github.ref_name }}" || exit 0
+        git push
+
+    - name: Update release notes
+      uses: softprops/action-gh-release@v2
+      with:
+        body: |
+          ${{ steps.changelog.outputs.changelog }}
+          
+          ## Downloads
+          - Windows: Download the `.exe` file
+          - macOS: Download the `.dmg` file  
+          - Linux: Download the `.AppImage` or `.deb` file
+        draft: false
+        prerelease: false

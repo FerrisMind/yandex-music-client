@@ -1,0 +1,111 @@
+name: Cleanup
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'  # Каждое воскресенье в 3:00
+  workflow_dispatch:
+
+jobs:
+  cleanup-artifacts:
+    name: Cleanup Old Artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cleanup old artifacts
+      run: |
+        # Удаляем артефакты старше 30 дней
+        echo "Cleaning up old artifacts..."
+        
+        # Здесь можно добавить логику для удаления старых артефактов
+        # Например, через GitHub API:
+        # gh api repos/:owner/:repo/actions/artifacts --paginate | jq '.artifacts[] | select(.created_at < "'$(date -d '30 days ago' -Iseconds)'") | .id' | xargs -I {} gh api repos/:owner/:repo/actions/artifacts/{} -X DELETE
+
+    - name: Cleanup old releases
+      run: |
+        # Удаляем prerelease версии старше 7 дней
+        echo "Cleaning up old prereleases..."
+        
+        # Здесь можно добавить логику для удаления старых prerelease
+        # gh api repos/:owner/:repo/releases | jq '.[] | select(.prerelease and .created_at < "'$(date -d '7 days ago' -Iseconds)'") | .id' | xargs -I {} gh api repos/:owner/:repo/releases/{} -X DELETE
+
+  cleanup-branches:
+    name: Cleanup Old Branches
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cleanup old branches
+      run: |
+        # Удаляем ветки старше 30 дней (кроме main и develop)
+        echo "Cleaning up old branches..."
+        
+        # Получаем список веток
+        BRANCHES=$(git branch -r | grep -v "origin/main" | grep -v "origin/develop" | sed 's/origin\///')
+        
+        for branch in $BRANCHES; do
+          # Проверяем дату последнего коммита
+          LAST_COMMIT_DATE=$(git log -1 --format=%cd --date=iso origin/$branch)
+          DAYS_OLD=$(( ( $(date +%s) - $(date -d "$LAST_COMMIT_DATE" +%s) ) / 86400 ))
+          
+          if [ $DAYS_OLD -gt 30 ]; then
+            echo "Deleting old branch: $branch (last commit: $DAYS_OLD days ago)"
+            # Удаляем ветку
+            # git push origin --delete $branch
+          fi
+        done
+
+  cleanup-workflow-runs:
+    name: Cleanup Old Workflow Runs
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cleanup old workflow runs
+      run: |
+        # Удаляем workflow runs старше 90 дней
+        echo "Cleaning up old workflow runs..."
+        
+        # Здесь можно добавить логику для удаления старых workflow runs
+        # gh api repos/:owner/:repo/actions/runs --paginate | jq '.workflow_runs[] | select(.created_at < "'$(date -d '90 days ago' -Iseconds)'") | .id' | xargs -I {} gh api repos/:owner/:repo/actions/runs/{} -X DELETE
+
+  cleanup-cache:
+    name: Cleanup Cache
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cleanup cache
+      run: |
+        # Очищаем кэш старше 30 дней
+        echo "Cleaning up old cache..."
+        
+        # Здесь можно добавить логику для очистки кэша
+        # gh api repos/:owner/:repo/actions/caches --paginate | jq '.actions_caches[] | select(.created_at < "'$(date -d '30 days ago' -Iseconds)'") | .id' | xargs -I {} gh api repos/:owner/:repo/actions/caches/{} -X DELETE
+
+    - name: Report cleanup
+      run: |
+        echo "Cleanup completed successfully"
+        echo "Date: $(date)"
+        echo "Repository: ${{ github.repository }}"
+        
+        # Здесь можно добавить отчет о очистке
+        # curl -X POST -H 'Content-type: application/json' \
+        #   --data "{\"text\":\"🧹 Cleanup completed for ${{ github.repository }}\"}" \
+        #   ${{ secrets.SLACK_WEBHOOK_URL }}
