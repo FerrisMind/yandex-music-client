@@ -1,0 +1,193 @@
+name: Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'  # Каждое воскресенье в 2:00
+  workflow_dispatch:
+
+jobs:
+  backup-repository:
+    name: Backup Repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Create backup archive
+      run: |
+        # Создаем архив с исходным кодом
+        BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+        BACKUP_NAME="yandex-music-client-backup-$BACKUP_DATE.tar.gz"
+        
+        # Исключаем ненужные файлы
+        tar --exclude='node_modules' \
+            --exclude='src-tauri/target' \
+            --exclude='.git' \
+            --exclude='dist' \
+            -czf $BACKUP_NAME .
+        
+        echo "backup-file=$BACKUP_NAME" >> $GITHUB_OUTPUT
+
+    - name: Upload backup to artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: repository-backup-${{ steps.backup.outputs.backup-file }}
+        path: ${{ steps.backup.outputs.backup-file }}
+        retention-days: 30
+
+    - name: Create backup report
+      run: |
+        echo "# Backup Report" > backup-report.md
+        echo "" >> backup-report.md
+        echo "## Repository Backup" >> backup-report.md
+        echo "" >> backup-report.md
+        echo "- **Date:** $(date)" >> backup-report.md
+        echo "- **Repository:** ${{ github.repository }}" >> backup-report.md
+        echo "- **Branch:** ${{ github.ref }}" >> backup-report.md
+        echo "- **Commit:** ${{ github.sha }}" >> backup-report.md
+        echo "- **Backup File:** ${{ steps.backup.outputs.backup-file }}" >> backup-report.md
+        echo "" >> backup-report.md
+        echo "## File Statistics" >> backup-report.md
+        echo "" >> backup-report.md
+        echo "- **Total Files:** $(find . -type f | wc -l)" >> backup-report.md
+        echo "- **Total Size:** $(du -sh . | cut -f1)" >> backup-report.md
+        echo "" >> backup-report.md
+        echo "## Dependencies" >> backup-report.md
+        echo "" >> backup-report.md
+        echo "### Node.js Dependencies" >> backup-report.md
+        echo '```json' >> backup-report.md
+        cat package.json >> backup-report.md
+        echo '```' >> backup-report.md
+        echo "" >> backup-report.md
+        echo "### Rust Dependencies" >> backup-report.md
+        echo '```toml' >> backup-report.md
+        cat src-tauri/Cargo.toml >> backup-report.md
+        echo '```' >> backup-report.md
+
+    - name: Upload backup report
+      uses: actions/upload-artifact@v4
+      with:
+        name: backup-report-${{ steps.backup.outputs.backup-file }}
+        path: backup-report.md
+        retention-days: 30
+
+  backup-releases:
+    name: Backup Releases
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Download release artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: releases
+
+    - name: Create releases backup
+      run: |
+        # Создаем архив с релизами
+        BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+        RELEASES_BACKUP="releases-backup-$BACKUP_DATE.tar.gz"
+        
+        if [ -d "releases" ]; then
+          tar -czf $RELEASES_BACKUP releases/
+          echo "releases-backup=$RELEASES_BACKUP" >> $GITHUB_OUTPUT
+        else
+          echo "No releases found to backup"
+        fi
+
+    - name: Upload releases backup
+      if: steps.backup-releases.outputs.releases-backup
+      uses: actions/upload-artifact@v4
+      with:
+        name: releases-backup-${{ steps.backup-releases.outputs.releases-backup }}
+        path: ${{ steps.backup-releases.outputs.releases-backup }}
+        retention-days: 90
+
+  backup-configuration:
+    name: Backup Configuration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Create config backup
+      run: |
+        # Создаем архив с конфигурационными файлами
+        BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+        CONFIG_BACKUP="config-backup-$BACKUP_DATE.tar.gz"
+        
+        # Собираем важные конфигурационные файлы
+        tar -czf $CONFIG_BACKUP \
+          package.json \
+          package-lock.json \
+          src-tauri/Cargo.toml \
+          src-tauri/Cargo.lock \
+          src-tauri/tauri.conf.json \
+          tsconfig.json \
+          vite.config.ts \
+          .github/
+        
+        echo "config-backup=$CONFIG_BACKUP" >> $GITHUB_OUTPUT
+
+    - name: Upload config backup
+      uses: actions/upload-artifact@v4
+      with:
+        name: config-backup-${{ steps.backup-configuration.outputs.config-backup }}
+        path: ${{ steps.backup-configuration.outputs.config-backup }}
+        retention-days: 365
+
+    - name: Create config report
+      run: |
+        echo "# Configuration Backup Report" > config-report.md
+        echo "" >> config-report.md
+        echo "## Backup Details" >> config-report.md
+        echo "" >> config-report.md
+        echo "- **Date:** $(date)" >> config-report.md
+        echo "- **Repository:** ${{ github.repository }}" >> config-report.md
+        echo "- **Config File:** ${{ steps.backup-configuration.outputs.config-backup }}" >> config-report.md
+        echo "" >> config-report.md
+        echo "## Configuration Files" >> config-report.md
+        echo "" >> config-report.md
+        echo "- package.json" >> config-report.md
+        echo "- package-lock.json" >> config-report.md
+        echo "- src-tauri/Cargo.toml" >> config-report.md
+        echo "- src-tauri/Cargo.lock" >> config-report.md
+        echo "- src-tauri/tauri.conf.json" >> config-report.md
+        echo "- tsconfig.json" >> config-report.md
+        echo "- vite.config.ts" >> config-report.md
+        echo "- .github/ (GitHub Actions)" >> config-report.md
+
+    - name: Upload config report
+      uses: actions/upload-artifact@v4
+      with:
+        name: config-report-${{ steps.backup-configuration.outputs.config-backup }}
+        path: config-report.md
+        retention-days: 365
