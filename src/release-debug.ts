@@ -40,7 +40,20 @@ export class ReleaseDebugger {
         // Проверяем доступность API Tauri
         if (typeof window !== 'undefined' && (window as any).__TAURI__) {
           this.log('✅ Tauri API доступен');
-          resolve(true);
+          
+          // Дополнительная проверка WebviewWindow API
+          this.checkWebviewWindowAPI().then(isAvailable => {
+            if (isAvailable) {
+              this.log('✅ WebviewWindow API доступен');
+              resolve(true);
+            } else {
+              this.log('❌ WebviewWindow API недоступен');
+              resolve(false);
+            }
+          }).catch(error => {
+            this.log('❌ Ошибка проверки WebviewWindow API:', error);
+            resolve(false);
+          });
         } else {
           this.log('❌ Tauri API недоступен');
           resolve(false);
@@ -50,6 +63,46 @@ export class ReleaseDebugger {
         resolve(false);
       }
     });
+  }
+
+  // Проверка WebviewWindow API
+  async checkWebviewWindowAPI(): Promise<boolean> {
+    try {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      this.log('✅ WebviewWindow импортирован успешно');
+      
+      // Проверяем, можем ли мы создать экземпляр
+      const testWindow = new WebviewWindow('test', {
+        url: 'about:blank',
+        title: 'Test',
+        width: 100,
+        height: 100,
+        visible: false
+      });
+      
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          this.log('❌ Таймаут создания тестового WebviewWindow');
+          resolve(false);
+        }, 5000);
+        
+        testWindow.once('tauri://created', () => {
+          clearTimeout(timeout);
+          this.log('✅ Тестовый WebviewWindow создан успешно');
+          testWindow.close();
+          resolve(true);
+        });
+        
+        testWindow.once('tauri://error', (e: any) => {
+          clearTimeout(timeout);
+          this.log('❌ Ошибка создания тестового WebviewWindow:', e);
+          resolve(false);
+        });
+      });
+    } catch (error) {
+      this.log('❌ Ошибка импорта WebviewWindow:', error);
+      return false;
+    }
   }
 
   // Проверка CSP для WebviewWindow

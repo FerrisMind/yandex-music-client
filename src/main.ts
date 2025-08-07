@@ -2,6 +2,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { debugLogger } from "./debug";
 import { releaseDebugger } from "./release-debug";
 import { webviewDebugger } from "./webview-debug";
+import { webviewFallback } from "./webview-fallback";
 
 // Система управления изображениями
 class ImageManager {
@@ -109,6 +110,12 @@ class WebviewManager {
     try {
       debugLogger.log("Создаем WebviewWindow для Яндекс Музыки");
       
+      // Проверяем доступность Tauri API
+      if (typeof window === 'undefined' || !(window as any).__TAURI__) {
+        debugLogger.error("Tauri API недоступен");
+        return false;
+      }
+      
       // Динамический импорт WebviewWindow для оптимизации code splitting
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       
@@ -140,7 +147,7 @@ class WebviewManager {
         const timeout = setTimeout(() => {
           debugLogger.warn("⏰ Таймаут создания WebviewWindow");
           resolve(false);
-        }, 10000);
+        }, 15000); // Увеличиваем таймаут до 15 секунд
 
         yandexMusicWindow.once('tauri://created', () => {
           clearTimeout(timeout);
@@ -169,31 +176,60 @@ class WebviewManager {
     }
   }
 
-  // Основной метод инициализации
+  // Основной метод инициализации с улучшенной логикой
   async initialize(container: HTMLElement): Promise<void> {
     debugLogger.log("Инициализация WebviewManager");
     
-    // Пытаемся создать WebviewWindow
-    const webviewSuccess = await this.createWebviewWindow();
-    
-    if (!webviewSuccess) {
-      debugLogger.error("Не удалось создать WebviewWindow");
-      
-      // Показываем сообщение об ошибке
-      container.innerHTML = `
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 20px; text-align: center;">
-          <h2>Ошибка загрузки Яндекс Музыки</h2>
-          <p>Не удалось создать окно приложения. Возможные причины:</p>
-          <ul style="text-align: left; max-width: 500px;">
-            <li>Проблемы с сетевым подключением</li>
-            <li>Блокировка антивирусом или файрволом</li>
-            <li>Проблемы с правами доступа</li>
-          </ul>
-          <button onclick="location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #ff0000; color: white; border: none; border-radius: 5px; cursor: pointer;">
-            Попробовать снова
-          </button>
+    // Показываем индикатор загрузки
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 20px; text-align: center;">
+        <div style="margin-bottom: 20px;">
+          <div style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #ff0000; border-radius: 50%; animation: spin 1s linear infinite;"></div>
         </div>
-      `;
+        <h3>Загрузка Яндекс Музыки...</h3>
+        <p>Пожалуйста, подождите</p>
+      </div>
+      <style>
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      </style>
+    `;
+    
+    // Пытаемся создать WebviewWindow несколько раз
+    let webviewSuccess = false;
+    const maxAttempts = 3;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      debugLogger.log(`Попытка создания WebviewWindow ${attempt}/${maxAttempts}`);
+      
+      webviewSuccess = await this.createWebviewWindow();
+      
+      if (webviewSuccess) {
+        debugLogger.log("WebviewWindow создан успешно");
+        container.innerHTML = ''; // Очищаем контейнер
+        return;
+      }
+      
+      if (attempt < maxAttempts) {
+        debugLogger.log(`Попытка ${attempt} не удалась, ожидаем перед следующей попыткой...`);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Ждем 2 секунды
+      }
+    }
+    
+    // Если все попытки не удались, используем улучшенный fallback
+    debugLogger.error("Все попытки создания WebviewWindow не удались");
+    
+    // Проверяем доступность iframe
+    const iframeAvailable = await webviewFallback.testIframeAvailability();
+    
+    if (iframeAvailable) {
+      debugLogger.log("iframe доступен, используем его как fallback");
+      webviewFallback.createIframeFallback(container);
+    } else {
+      debugLogger.log("iframe недоступен, показываем сообщение об ошибке");
+      webviewFallback.showErrorMessage(container, 'Не удалось загрузить Яндекс Музыку');
     }
   }
 }
@@ -266,18 +302,19 @@ window.addEventListener("DOMContentLoaded", async () => {
     } catch (error) {
       debugLogger.error("Ошибка инициализации webview:", error);
       
-      // Финальный fallback - простой iframe
-      debugLogger.log("Используем финальный fallback");
-      const iframe = document.createElement('iframe');
-      iframe.src = 'https://music.yandex.ru';
-      iframe.style.width = '100%';
-      iframe.style.height = '100%';
-      iframe.style.border = 'none';
-      iframe.style.outline = 'none';
-      iframe.allow = 'autoplay; encrypted-media';
+      // Используем улучшенный fallback механизм
+      debugLogger.log("Используем улучшенный fallback механизм");
       
-      webviewContainer.innerHTML = '';
-      webviewContainer.appendChild(iframe);
+      // Проверяем доступность iframe
+      const iframeAvailable = await webviewFallback.testIframeAvailability();
+      
+      if (iframeAvailable) {
+        debugLogger.log("iframe доступен, используем его");
+        webviewFallback.createIframeFallback(webviewContainer);
+      } else {
+        debugLogger.log("iframe недоступен, показываем сообщение об ошибке");
+        webviewFallback.showErrorMessage(webviewContainer, 'Не удалось загрузить Яндекс Музыку');
+      }
     }
   } else {
     debugLogger.error("Контейнер webview не найден");
